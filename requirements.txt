@@ -1,7 +1,7 @@
 streamlit
 langchain
-langchain-google-genai
 langchain-community
+langchain-google-genai
 langchain-text-splitters
 pytube
 youtube-transcript-api
