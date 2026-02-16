@@ -2,6 +2,7 @@ streamlit
 langchain
 langchain-google-genai
 langchain-community
+langchain-text-splitters
 pytube
 youtube-transcript-api
 faiss-cpu
