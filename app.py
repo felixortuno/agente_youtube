@@ -4,9 +4,9 @@ from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_core.messages import HumanMessage, AIMessage
 
 # --- CONFIGURACIÓN ---
-st.set_page_config(page_title="Chat Flash", page_icon="⚡")
-st.title("⚡ Gemini 1.5 Flash (Chatbot)")
-st.caption("Modelo rápido, gratuito y fiable.")
+st.set_page_config(page_title="Chat Gemini Pro", page_icon="🤖")
+st.title("🤖 Chat Gemini Pro")
+st.caption("Usando el modelo estándar (gemini-pro) para máxima compatibilidad.")
 
 # --- BARRA LATERAL ---
 with st.sidebar:
@@ -51,13 +51,14 @@ if user_input:
     with st.chat_message("assistant"):
         message_placeholder = st.empty()
         try:
-            # --- CAMBIO AQUÍ: USAMOS FLASH ---
+            # --- CAMBIO CLAVE: USAMOS 'gemini-pro' ---
+            # Este modelo es el más compatible a nivel mundial
             llm = ChatGoogleGenerativeAI(
-                model="gemini-1.5-flash",
+                model="gemini-pro",
                 temperature=0.7
             )
             
-            with st.spinner("Generando respuesta rápida..."):
+            with st.spinner("Pensando..."):
                 response = llm.invoke(st.session_state.chat_history)
                 message_placeholder.markdown(response.content)
                 
@@ -65,4 +66,5 @@ if user_input:
             st.session_state.chat_history.append(AIMessage(content=response.content))
             
         except Exception as e:
-            st.error(f"Error: {e}")
+            st.error(f"Error de conexión: {e}")
+            st.info("💡 Si sigue fallando, crea una API Key nueva en aistudio.google.com y asegúrate de elegir un proyecto 'Free'.")

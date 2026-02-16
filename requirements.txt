@@ -1,2 +1,3 @@
 streamlit
-langchain-google-genai
+langchain-google-genai>=1.0.3
+langchain-core
