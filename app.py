@@ -2,39 +2,41 @@ import streamlit as st
 import os
 import time
 
-# Importaciones modernas para evitar el ModuleNotFoundError
+# Importaciones protegidas
 try:
     from langchain_google_genai import ChatGoogleGenerativeAI, GoogleGenerativeAIEmbeddings
     from langchain_community.document_loaders import YoutubeLoader
     from langchain_text_splitters import RecursiveCharacterTextSplitter
     from langchain_community.vectorstores import FAISS
-    from langchain.chains.retrieval_qa.base import RetrievalQA # Ruta ultra-específica
-except ModuleNotFoundError as e:
-    st.error(f"Error de módulos: {e}. Revisa que el requirements.txt esté correcto.")
+    # Usamos la importación más básica posible
+    from langchain.chains import RetrievalQA
+except Exception as e:
+    st.error(f"Error de módulos: {e}")
+    st.info("Espera a que Streamlit termine de instalar las dependencias en 'Manage app'.")
     st.stop()
 
 from pytube import YouTube
 
 # --- CONFIGURACIÓN ---
-st.set_page_config(layout="wide", page_title="Gemini Video AI")
+st.set_page_config(layout="wide", page_title="Gemini Video Chat")
 
 with st.sidebar:
-    st.title("🔑 Conexión")
-    user_key = st.text_input("Introduce tu Google API Key:", type="password")
-    if user_key:
-        os.environ["GOOGLE_API_KEY"] = user_key
+    st.title("🔑 Configuración")
+    api_key = st.text_input("Google API Key:", type="password")
+    if api_key:
+        os.environ["GOOGLE_API_KEY"] = api_key
     
     st.divider()
-    url_input = st.text_input("Link de YouTube:")
+    url = st.text_input("Link de YouTube:")
     btn = st.button("🚀 Analizar Video")
 
-if not user_key:
-    st.info("👈 Pon tu clave de Google a la izquierda.")
+if not api_key:
+    st.warning("👈 Introduce tu API Key de Google.")
     st.stop()
 
 # --- PROCESAMIENTO ---
 @st.cache_resource
-def procesar_video(v_url):
+def procesar(v_url):
     loader = YoutubeLoader.from_youtube_url(v_url, add_video_info=True)
     docs = loader.load()
     splitter = RecursiveCharacterTextSplitter(chunk_size=2000, chunk_overlap=200)
@@ -45,36 +47,33 @@ def procesar_video(v_url):
     return vectorstore, YouTube(v_url).title
 
 # --- UI ---
-st.title("🎥 Asistente de Video con Gemini")
+st.title("🎥 Chat con Video (Gemini)")
 
-if btn and url_input:
+if btn and url:
     try:
-        vs, titulo = procesar_video(url_input)
+        vs, titulo = procesar(url)
         st.session_state["vs"] = vs
-        st.session_state["url"] = url_input
-        st.session_state["chat_history"] = []
+        st.session_state["url"] = url
+        st.session_state["chat"] = []
         st.success(f"Analizado: {titulo}")
     except Exception as e:
         st.error(f"Error: {e}")
 
 if "vs" in st.session_state:
-    col1, col2 = st.columns(2)
-    with col1:
+    c1, c2 = st.columns(2)
+    with c1:
         st.video(st.session_state["url"])
-    with col2:
-        for m in st.session_state.get("chat_history", []):
-            with st.chat_message(m["role"]):
-                st.write(m["content"])
+    with c2:
+        for m in st.session_state.get("chat", []):
+            with st.chat_message(m["role"]): st.write(m["content"])
         
-        if prompt := st.chat_input("Pregunta algo..."):
-            st.session_state["chat_history"].append({"role": "user", "content": prompt})
-            with st.chat_message("user"):
-                st.write(prompt)
+        if p := st.chat_input("Pregunta algo..."):
+            st.session_state["chat"].append({"role": "user", "content": p})
+            with st.chat_message("user"): st.write(p)
             
             with st.chat_message("assistant"):
                 llm = ChatGoogleGenerativeAI(model="gemini-1.5-flash")
-                # Usamos la cadena de recuperación
                 qa = RetrievalQA.from_chain_type(llm=llm, retriever=st.session_state["vs"].as_retriever())
-                res = qa.invoke(prompt)["result"]
+                res = qa.invoke(p)["result"]
                 st.write(res)
-                st.session_state["chat_history"].append({"role": "assistant", "content": res})
+                st.session_state["chat"].append({"role": "assistant", "content": res})
