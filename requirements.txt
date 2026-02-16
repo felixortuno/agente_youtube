@@ -1,8 +1,7 @@
 streamlit
 langchain
-langchain-openai
+langchain-google-genai
 langchain-community
 pytube
 youtube-transcript-api
 faiss-cpu
-langchain-google-genai
