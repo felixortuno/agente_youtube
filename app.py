@@ -1,7 +1,6 @@
 import streamlit as st
 import os
 
-# Importaciones dentro de un bloque try para diagnosticar errores
 try:
     from langchain_google_genai import ChatGoogleGenerativeAI, GoogleGenerativeAIEmbeddings
     from langchain_community.document_loaders import YoutubeLoader
@@ -34,14 +33,13 @@ if not api_key:
 # --- LÓGICA ---
 @st.cache_resource
 def procesar_video(link):
-    # 'add_video_info=False' es CRUCIAL para evitar bloqueos de YouTube
-    loader = YoutubeLoader.from_youtube_url(link, add_video_info=False, language=["es", "en"])
+    # Sin metadatos para evitar el bloqueo HTTP de YouTube
+    loader = YoutubeLoader.from_youtube_url(link, add_video_info=False)
     docs = loader.load()
     
     text_splitter = RecursiveCharacterTextSplitter(chunk_size=2000, chunk_overlap=200)
     splits = text_splitter.split_documents(docs)
     
-    # Usamos embeddings de Google
     embeddings = GoogleGenerativeAIEmbeddings(model="models/embedding-001")
     vectorstore = FAISS.from_documents(splits, embeddings)
     return vectorstore
@@ -54,10 +52,10 @@ if btn and url:
         with st.spinner("Descargando subtítulos y procesando..."):
             st.session_state.vectorstore = procesar_video(url)
             st.session_state.url = url
+            st.session_state.messages = []
             st.success("¡Video procesado!")
     except Exception as e:
         st.error(f"Error al procesar: {e}")
-        st.warning("Nota: El video debe tener subtítulos habilitados (CC).")
 
 if "vectorstore" in st.session_state:
     col1, col2 = st.columns([1, 1])
@@ -66,7 +64,6 @@ if "vectorstore" in st.session_state:
         st.video(st.session_state.url)
     
     with col2:
-        # Historial de chat
         if "messages" not in st.session_state:
             st.session_state.messages = []
 
@@ -80,13 +77,12 @@ if "vectorstore" in st.session_state:
                 st.markdown(prompt)
 
             with st.chat_message("assistant"):
+                # Usamos el modelo rápido de la familia Gemini
                 llm = ChatGoogleGenerativeAI(model="gemini-1.5-flash")
                 
-                # Prompt del sistema
                 system_prompt = (
-                    "Eres un asistente útil. Usa el siguiente contexto del video para responder la pregunta. "
-                    "Si no sabes la respuesta, di que no está en el video."
-                    "\n\nContexto:\n{context}"
+                    "Eres un asistente útil. Usa el siguiente contexto del video para responder la pregunta.\n\n"
+                    "Contexto:\n{context}"
                 )
                 
                 prompt_template = ChatPromptTemplate.from_messages([

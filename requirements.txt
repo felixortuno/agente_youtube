@@ -1,7 +1,7 @@
-streamlit
-langchain
-langchain-community
-langchain-google-genai
-langchain-text-splitters
-youtube-transcript-api
-faiss-cpu
+streamlit>=1.35.0
+langchain>=0.3.0
+langchain-community>=0.3.0
+langchain-google-genai>=4.0.0
+langchain-text-splitters>=0.3.0
+youtube-transcript-api>=0.6.2
+faiss-cpu>=1.13.2
