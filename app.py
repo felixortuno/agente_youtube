@@ -1,88 +1,80 @@
 import streamlit as st
 import os
 import time
-from langchain_google_genai import ChatGoogleGenerativeAI, GoogleGenerativeAIEmbeddings
-from langchain_community.document_loaders import YoutubeLoader
-from langchain_text_splitters import RecursiveCharacterTextSplitter
-from langchain_community.vectorstores import FAISS
-from langchain.chains import RetrievalQA
+
+# Importaciones modernas para evitar el ModuleNotFoundError
+try:
+    from langchain_google_genai import ChatGoogleGenerativeAI, GoogleGenerativeAIEmbeddings
+    from langchain_community.document_loaders import YoutubeLoader
+    from langchain_text_splitters import RecursiveCharacterTextSplitter
+    from langchain_community.vectorstores import FAISS
+    from langchain.chains.retrieval_qa.base import RetrievalQA # Ruta ultra-específica
+except ModuleNotFoundError as e:
+    st.error(f"Error de módulos: {e}. Revisa que el requirements.txt esté correcto.")
+    st.stop()
+
 from pytube import YouTube
 
-# --- CONFIGURACIÓN DE PÁGINA ---
-st.set_page_config(layout="wide", page_title="Gemini Video AI", page_icon="♊")
+# --- CONFIGURACIÓN ---
+st.set_page_config(layout="wide", page_title="Gemini Video AI")
 
 with st.sidebar:
     st.title("🔑 Conexión")
-    user_api_key = st.text_input("Introduce tu Google API Key:", type="password")
-    if user_api_key:
-        os.environ["GOOGLE_API_KEY"] = user_api_key
+    user_key = st.text_input("Introduce tu Google API Key:", type="password")
+    if user_key:
+        os.environ["GOOGLE_API_KEY"] = user_key
     
     st.divider()
-    url_video = st.text_input("Link de YouTube:", placeholder="https://www.youtube.com/watch?v=...")
-    btn_procesar = st.button("🚀 Analizar Video")
+    url_input = st.text_input("Link de YouTube:")
+    btn = st.button("🚀 Analizar Video")
 
-if not user_api_key:
-    st.info("👈 Introduce tu API Key de Google en la izquierda para empezar.")
+if not user_key:
+    st.info("👈 Pon tu clave de Google a la izquierda.")
     st.stop()
 
 # --- PROCESAMIENTO ---
 @st.cache_resource
-def procesar_video(video_url):
-    loader = YoutubeLoader.from_youtube_url(video_url, add_video_info=True)
+def procesar_video(v_url):
+    loader = YoutubeLoader.from_youtube_url(v_url, add_video_info=True)
     docs = loader.load()
     splitter = RecursiveCharacterTextSplitter(chunk_size=2000, chunk_overlap=200)
     chunks = splitter.split_documents(docs)
     
-    # Embeddings de Google
     embeddings = GoogleGenerativeAIEmbeddings(model="models/embedding-001")
     vectorstore = FAISS.from_documents(chunks, embeddings)
-    
-    return vectorstore, YouTube(video_url).title
+    return vectorstore, YouTube(v_url).title
 
-# --- INTERFAZ ---
+# --- UI ---
 st.title("🎥 Asistente de Video con Gemini")
 
-if btn_procesar and url_video:
+if btn and url_input:
     try:
-        with st.spinner("Analizando contenido..."):
-            vs, titulo = procesar_video(url_video)
-            st.session_state["vs"] = vs
-            st.session_state["titulo"] = titulo
-            st.session_state["url"] = url_video
-            st.session_state["chat_history"] = []
-            st.success(f"Analizado: {titulo}")
+        vs, titulo = procesar_video(url_input)
+        st.session_state["vs"] = vs
+        st.session_state["url"] = url_input
+        st.session_state["chat_history"] = []
+        st.success(f"Analizado: {titulo}")
     except Exception as e:
         st.error(f"Error: {e}")
 
 if "vs" in st.session_state:
-    col1, col2 = st.columns([1, 1])
-    
+    col1, col2 = st.columns(2)
     with col1:
         st.video(st.session_state["url"])
-    
     with col2:
-        # Contenedor para el chat
-        chat_container = st.container()
+        for m in st.session_state.get("chat_history", []):
+            with st.chat_message(m["role"]):
+                st.write(m["content"])
         
-        for msg in st.session_state["chat_history"]:
-            with chat_container.chat_message(msg["role"]):
-                st.write(msg["content"])
-        
-        if prompt := st.chat_input("¿Qué quieres saber?"):
+        if prompt := st.chat_input("Pregunta algo..."):
             st.session_state["chat_history"].append({"role": "user", "content": prompt})
-            with chat_container.chat_message("user"):
+            with st.chat_message("user"):
                 st.write(prompt)
             
-            with chat_container.chat_message("assistant"):
+            with st.chat_message("assistant"):
                 llm = ChatGoogleGenerativeAI(model="gemini-1.5-flash")
-                qa = RetrievalQA.from_chain_type(
-                    llm=llm, 
-                    retriever=st.session_state["vs"].as_retriever()
-                )
-                
-                # Usamos invoke para evitar avisos de depreciación
-                resultado = qa.invoke(prompt)
-                respuesta = resultado["result"]
-                st.write(respuesta)
-                
-            st.session_state["chat_history"].append({"role": "assistant", "content": respuesta})
+                # Usamos la cadena de recuperación
+                qa = RetrievalQA.from_chain_type(llm=llm, retriever=st.session_state["vs"].as_retriever())
+                res = qa.invoke(prompt)["result"]
+                st.write(res)
+                st.session_state["chat_history"].append({"role": "assistant", "content": res})
