@@ -1,87 +1,104 @@
 import streamlit as st
 import os
 
-# Importaciones protegidas para detectar fallos de instalación
+# Importaciones dentro de un bloque try para diagnosticar errores
 try:
     from langchain_google_genai import ChatGoogleGenerativeAI, GoogleGenerativeAIEmbeddings
     from langchain_community.document_loaders import YoutubeLoader
     from langchain_text_splitters import RecursiveCharacterTextSplitter
     from langchain_community.vectorstores import FAISS
-    from langchain.chains.combine_documents import create_stuff_documents_chain
     from langchain.chains import create_retrieval_chain
+    from langchain.chains.combine_documents import create_stuff_documents_chain
     from langchain_core.prompts import ChatPromptTemplate
 except Exception as e:
-    st.error(f"Error de módulos: {e}")
-    st.info("Revisa que el archivo requirements.txt tenga las versiones correctas.")
+    st.error(f"Error importando librerías: {e}")
     st.stop()
 
-# --- CONFIGURACIÓN DE PÁGINA ---
-st.set_page_config(layout="wide", page_title="Gemini Video AI")
+# --- CONFIGURACIÓN ---
+st.set_page_config(page_title="Gemini Video AI", layout="wide")
 
 with st.sidebar:
-    st.title("🔑 Conexión")
-    api_key = st.text_input("Introduce tu Google API Key:", type="password")
+    st.title("🤖 Configuración")
+    api_key = st.text_input("Google API Key:", type="password")
     if api_key:
         os.environ["GOOGLE_API_KEY"] = api_key
     
     st.divider()
-    url_input = st.text_input("Link de YouTube:", placeholder="https://www.youtube.com/watch?v=...")
-    btn_analizar = st.button("🚀 Analizar Video")
+    url = st.text_input("Link de YouTube:")
+    btn = st.button("Analizar Video")
 
 if not api_key:
-    st.info("👈 Introduce tu clave de Google AI Studio a la izquierda.")
+    st.info("👈 Ingresa tu API Key para comenzar.")
     st.stop()
 
-# --- PROCESAMIENTO ---
+# --- LÓGICA ---
 @st.cache_resource
-def procesar_contenido(url):
-    # add_video_info=False es lo que evita el bloqueo de YouTube
-    loader = YoutubeLoader.from_youtube_url(url, add_video_info=False)
+def procesar_video(link):
+    # 'add_video_info=False' es CRUCIAL para evitar bloqueos de YouTube
+    loader = YoutubeLoader.from_youtube_url(link, add_video_info=False, language=["es", "en"])
     docs = loader.load()
     
-    if not docs:
-        raise ValueError("No se encontraron subtítulos. Prueba con otro video.")
-
-    splitter = RecursiveCharacterTextSplitter(chunk_size=2000, chunk_overlap=200)
-    chunks = splitter.split_documents(docs)
+    text_splitter = RecursiveCharacterTextSplitter(chunk_size=2000, chunk_overlap=200)
+    splits = text_splitter.split_documents(docs)
     
+    # Usamos embeddings de Google
     embeddings = GoogleGenerativeAIEmbeddings(model="models/embedding-001")
-    vectorstore = FAISS.from_documents(chunks, embeddings)
+    vectorstore = FAISS.from_documents(splits, embeddings)
     return vectorstore
 
 # --- INTERFAZ ---
-st.title("🎥 Asistente de Video con Gemini")
+st.title("🎬 Chat con Videos de YouTube")
 
-if btn_analizar and url_input:
+if btn and url:
     try:
-        with st.spinner("Gemini está analizando el video..."):
-            st.session_state["vs"] = procesar_contenido(url_input)
-            st.session_state["url"] = url_input
-            st.session_state["chat_history"] = []
-            st.success("¡Video listo para chatear!")
+        with st.spinner("Descargando subtítulos y procesando..."):
+            st.session_state.vectorstore = procesar_video(url)
+            st.session_state.url = url
+            st.success("¡Video procesado!")
     except Exception as e:
-        st.error(f"Error: {e}")
+        st.error(f"Error al procesar: {e}")
+        st.warning("Nota: El video debe tener subtítulos habilitados (CC).")
 
-if "vs" in st.session_state:
-    col_v, col_c = st.columns([1, 1])
-    with col_v:
-        st.video(st.session_state["url"])
-    with col_c:
-        for m in st.session_state["chat_history"]:
-            with st.chat_message(m["role"]): st.write(m["content"])
-        
-        if p := st.chat_input("¿Qué quieres saber?"):
-            st.session_state["chat_history"].append({"role": "user", "content": p})
-            with st.chat_message("user"): st.write(p)
-            
+if "vectorstore" in st.session_state:
+    col1, col2 = st.columns([1, 1])
+    
+    with col1:
+        st.video(st.session_state.url)
+    
+    with col2:
+        # Historial de chat
+        if "messages" not in st.session_state:
+            st.session_state.messages = []
+
+        for message in st.session_state.messages:
+            with st.chat_message(message["role"]):
+                st.markdown(message["content"])
+
+        if prompt := st.chat_input("Pregunta algo sobre el video..."):
+            st.session_state.messages.append({"role": "user", "content": prompt})
+            with st.chat_message("user"):
+                st.markdown(prompt)
+
             with st.chat_message("assistant"):
                 llm = ChatGoogleGenerativeAI(model="gemini-1.5-flash")
-                prompt = ChatPromptTemplate.from_template("Responde basándote solo en este video: {context}\nPregunta: {input}")
                 
-                chain_docs = create_stuff_documents_chain(llm, prompt)
-                chain_rag = create_retrieval_chain(st.session_state["vs"].as_retriever(), chain_docs)
+                # Prompt del sistema
+                system_prompt = (
+                    "Eres un asistente útil. Usa el siguiente contexto del video para responder la pregunta. "
+                    "Si no sabes la respuesta, di que no está en el video."
+                    "\n\nContexto:\n{context}"
+                )
                 
-                res = chain_rag.invoke({"input": p})
-                ans = res["answer"]
-                st.write(ans)
-                st.session_state["chat_history"].append({"role": "assistant", "content": ans})
+                prompt_template = ChatPromptTemplate.from_messages([
+                    ("system", system_prompt),
+                    ("human", "{input}"),
+                ])
+
+                question_answer_chain = create_stuff_documents_chain(llm, prompt_template)
+                rag_chain = create_retrieval_chain(st.session_state.vectorstore.as_retriever(), question_answer_chain)
+
+                response = rag_chain.invoke({"input": prompt})
+                answer = response["answer"]
+                
+                st.markdown(answer)
+                st.session_state.messages.append({"role": "assistant", "content": answer})
