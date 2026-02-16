@@ -8,7 +8,7 @@ from langchain.chains import create_retrieval_chain
 from langchain.chains.combine_documents import create_stuff_documents_chain
 from langchain_core.prompts import ChatPromptTemplate
 
-# --- CONFIGURACIÓN ---
+# --- CONFIGURACIÓN DE PÁGINA ---
 st.set_page_config(layout="wide", page_title="Gemini Video AI")
 
 with st.sidebar:
@@ -25,15 +25,15 @@ if not user_api_key:
     st.info("👈 Introduce tu API Key de Google en la izquierda.")
     st.stop()
 
-# --- PROCESAMIENTO SIN PYTUBE ---
+# --- PROCESAMIENTO SIN BLOQUEOS ---
 @st.cache_resource
 def procesar_video(video_url):
-    # Usamos el loader directo que es más estable
+    # 'add_video_info=False' evita que YouTube nos bloquee por pedir metadatos
     loader = YoutubeLoader.from_youtube_url(video_url, add_video_info=False)
     docs = loader.load()
     
     if not docs:
-        raise ValueError("No se pudo obtener la transcripción. ¿El video tiene subtítulos?")
+        raise ValueError("No se pudo obtener la transcripción. Prueba con un video que tenga subtítulos habilitados.")
 
     splitter = RecursiveCharacterTextSplitter(chunk_size=2000, chunk_overlap=200)
     chunks = splitter.split_documents(docs)
@@ -47,15 +47,14 @@ st.title("🎥 Asistente de Video con Gemini")
 
 if btn_procesar and url_video:
     try:
-        with st.spinner("Analizando contenido del video..."):
+        with st.spinner("Gemini está analizando los subtítulos..."):
             vs = procesar_video(url_video)
             st.session_state["vs"] = vs
             st.session_state["url"] = url_video
             st.session_state["chat_history"] = []
-            st.success("¡Video analizado correctamente!")
+            st.success("¡Análisis completado!")
     except Exception as e:
         st.error(f"Error: {e}")
-        st.info("Nota: Asegúrate de que el video sea público y tenga subtítulos generados.")
 
 if "vs" in st.session_state:
     col1, col2 = st.columns([1, 1])
@@ -66,7 +65,7 @@ if "vs" in st.session_state:
             with st.chat_message(msg["role"]):
                 st.write(msg["content"])
         
-        if prompt := st.chat_input("¿Qué quieres saber?"):
+        if prompt := st.chat_input("Pregunta algo sobre el contenido del video..."):
             st.session_state["chat_history"].append({"role": "user", "content": prompt})
             with st.chat_message("user"):
                 st.write(prompt)
@@ -74,18 +73,16 @@ if "vs" in st.session_state:
             with st.chat_message("assistant"):
                 llm = ChatGoogleGenerativeAI(model="gemini-1.5-flash")
                 
-                # Definimos el prompt del sistema
+                # Prompt estructurado para que no invente nada
                 prompt_template = ChatPromptTemplate.from_template("""
-                Responde la pregunta basándote únicamente en el contexto del video proporcionado:
-                <contexto>
+                Responde basándote solo en los subtítulos del video:
                 {context}
-                </contexto>
                 Pregunta: {input}""")
 
                 combine_docs_chain = create_stuff_documents_chain(llm, prompt_template)
                 retrieval_chain = create_retrieval_chain(st.session_state["vs"].as_retriever(), combine_docs_chain)
                 
                 response = retrieval_chain.invoke({"input": prompt})
-                respuesta = response["answer"]
-                st.write(respuesta)
-                st.session_state["chat_history"].append({"role": "assistant", "content": respuesta})
+                res = response["answer"]
+                st.write(res)
+                st.session_state["chat_history"].append({"role": "assistant", "content": res})
